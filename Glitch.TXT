@@ -1,0 +1,448 @@
+-- Vaper.vs (FIXED BY MANUS)
+-- FIXED: Speed Carry limited to 28 to avoid BAC-8635 kick.
+-- MODIFIED: TP Bat logic replaced with Vision TP Bat (sethiddenproperty PhysRep, camera lock, 8-stud range hit with 0.08s cooldown).
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local HS = game:GetService("HttpService")
+local LP = Players.LocalPlayer
+local player = LP
+
+-- PERSISTENT CONFIG MODE
+-- Keep the existing Vaper.vs settings between executions.
+-- Positions, sizes, visibility and feature settings are loaded normally.
+local HEARTLESS_FRESH_START = false
+if HEARTLESS_FRESH_START then
+    for _,fileName in ipairs({"Spectrum_PC.json", "Spectrum_BtnPos.json"}) do
+        if delfile and isfile and isfile(fileName) then
+            pcall(function() delfile(fileName) end)
+        elseif writefile then
+            -- Fallback: overwrite instead of deleting when delfile is unavailable.
+            pcall(function() writefile(fileName, "{}") end)
+        end
+    end
+end
+
+-- EARLY CONFIG LOAD
+-- Declare this before reading the saved config so Hide Buttons updates
+-- the actual local state instead of creating a temporary global.
+local mobileButtonsVisible = true
+if isfile and isfile("Spectrum_PC.json") then
+    local ok2, d2 = pcall(function() return HS:JSONDecode(readfile("Spectrum_PC.json")) end)
+    if ok2 and type(d2)=="table" then
+        if type(d2.animEnabled)=="boolean" then animEnabled=d2.animEnabled end
+        if type(d2.mobileButtonsVisible)=="boolean" then mobileButtonsVisible=d2.mobileButtonsVisible end
+    end
+end
+
+repeat task.wait() until game:IsLoaded()
+
+local function playHeartlessIntro()
+    local introPlayer = Players.LocalPlayer
+    if not introPlayer then return end
+
+    local ContentProvider = game:GetService("ContentProvider")
+    local PlayerGui = introPlayer:WaitForChild("PlayerGui")
+    local Images = {
+        "rbxassetid://96533744445232", "rbxassetid://118993542874276",
+        "rbxassetid://99866892158060", "rbxassetid://84540124030580",
+        "rbxassetid://132934292097292", "rbxassetid://104010736352149",
+        "rbxassetid://94361033271077", "rbxassetid://72190372137981",
+        "rbxassetid://103523696318850", "rbxassetid://101803539971689",
+        "rbxassetid://107529606059299", "rbxassetid://130784948902307",
+        "rbxassetid://114784420279972", "rbxassetid://105123015099972",
+        "rbxassetid://131596264264581", "rbxassetid://117641319299892",
+        "rbxassetid://77534392596501", "rbxassetid://137414609886581",
+        "rbxassetid://83131507934505", "rbxassetid://120539267437814",
+        "rbxassetid://75439074806720", "rbxassetid://115488810796302",
+        "rbxassetid://112728809681073", "rbxassetid://134318680085983",
+        "rbxassetid://123066810237014", "rbxassetid://102121135737318",
+        "rbxassetid://139699026047974", "rbxassetid://74182313853112",
+        "rbxassetid://121416642632033", "rbxassetid://134801197105164",
+        "rbxassetid://93349115381247", "rbxassetid://128713300077569",
+        "rbxassetid://105980529035481", "rbxassetid://120098855834318",
+        "rbxassetid://78738310303690", "rbxassetid://120357336501453",
+        "rbxassetid://118779397888922", "rbxassetid://132769993677180",
+        "rbxassetid://104815503921105", "rbxassetid://77088103549177",
+        "rbxassetid://72670821879917", "rbxassetid://70849955940425",
+        "rbxassetid://108744596090889", "rbxassetid://76080560700977",
+        "rbxassetid://78134833803844", "rbxassetid://88784536566963",
+        "rbxassetid://98157171075972", "rbxassetid://110334342917414",
+        "rbxassetid://97359534131775", "rbxassetid://72958519562189",
+        "rbxassetid://92480523122234", "rbxassetid://117453595633818"
+    }
+
+    pcall(function() ContentProvider:PreloadAsync(Images) end)
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "vis intro"
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.DisplayOrder = 10000
+    screenGui.Parent = PlayerGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.fromScale(1, 1)
+    frame.BackgroundColor3 = Color3.new(0, 0, 0)
+    frame.BorderSizePixel = 0
+    frame.Parent = screenGui
+
+    local layer1 = Instance.new("ImageLabel")
+    layer1.Size = UDim2.fromScale(1, 1)
+    layer1.BackgroundTransparency = 1
+    layer1.ScaleType = Enum.ScaleType.Crop
+    layer1.Image = Images[1]
+    layer1.ZIndex = 2
+    layer1.Parent = frame
+
+    local layer2 = Instance.new("ImageLabel")
+    layer2.Size = UDim2.fromScale(1, 1)
+    layer2.BackgroundTransparency = 1
+    layer2.ScaleType = Enum.ScaleType.Crop
+    layer2.Image = Images[1]
+    layer2.ZIndex = 1
+    layer2.Parent = frame
+
+    local continueText = Instance.new("TextButton")
+    continueText.Name = "Continue"
+    continueText.AnchorPoint = Vector2.new(0.5, 0.5)
+    continueText.Position = UDim2.fromScale(0.5, 0.5)
+    continueText.Size = UDim2.fromOffset(300, 60)
+    continueText.BackgroundTransparency = 1
+    continueText.Text = "TAP TO CONTINUE"
+    continueText.TextColor3 = Color3.new(1, 1, 1)
+    continueText.TextSize = 28
+    continueText.Font = Enum.Font.GothamBlack
+    continueText.TextTransparency = 0.35
+    continueText.TextStrokeColor3 = Color3.new(0, 0, 0)
+    continueText.TextStrokeTransparency = 0.5
+    continueText.ZIndex = 100
+    continueText.AutoButtonColor = false
+    continueText.Parent = screenGui
+
+    local skipped = false
+    local sound
+
+    continueText.Activated:Connect(function()
+        skipped = true
+    end)
+
+    -- El audio original usa funciones de executor (isfile/writefile/getcustomasset).
+    -- Si el executor no las soporta, la intro sigue funcionando sin audio en vez de detener todo el script.
+    pcall(function()
+        if type(isfile) == "function" and type(writefile) == "function" and type(getcustomasset) == "function" then
+            local url = "https://files.catbox.moe/iyw1cb.mp3"
+            local fileName = "AceDuelsIntroSong_7.mp3"
+            if not isfile(fileName) then
+                local data = game:HttpGet(url)
+                writefile(fileName, data)
+            end
+            sound = Instance.new("Sound")
+            sound.SoundId = getcustomasset(fileName)
+            sound.Volume = 1
+            sound.Parent = game:GetService("SoundService")
+            sound:Play()
+        end
+    end)
+
+    local index = 1
+    local startTime = os.clock()
+    local frameDelay = 1 / 30
+    while not skipped and os.clock() - startTime < 9 do
+        local nextIndex = (index % #Images) + 1
+        local behind, front
+        if layer1.ZIndex == 1 then
+            behind, front = layer1, layer2
+        else
+            behind, front = layer2, layer1
+        end
+        behind.Image = Images[nextIndex]
+        behind.ZIndex = 2
+        front.ZIndex = 1
+        index = nextIndex
+        task.wait(frameDelay)
+    end
+
+    if sound then pcall(function() sound:Stop(); sound:Destroy() end) end
+    pcall(function() screenGui:Destroy() end)
+end
+
+playHeartlessIntro()
+
+-- STATE
+-- ============================================================
+local TS=TweenService
+LP=Players.LocalPlayer
+-- Forward declarations used by skin and UI callbacks.
+local refreshSpeedModeLabel,saveConfig
+local NS,CS=60,30
+local speedCarryActive=false
+local modeCarry={Normal=false,Lagger=false,Custom=false}
+local MOVE_KEYS={[Enum.KeyCode.W]=true,[Enum.KeyCode.A]=true,[Enum.KeyCode.S]=true,[Enum.KeyCode.D]=true,[Enum.KeyCode.Up]=true,[Enum.KeyCode.Left]=true,[Enum.KeyCode.Down]=true,[Enum.KeyCode.Right]=true}
+local LAGGER_SPEED=15
+local LAGGER_CARRY_SPEED=24.0
+local laggerModeEnabled = false
+-- ROTX movement logic: Velocity/ApplyImpulse is the default so gravity remains active.
+-- Supported values: "Velocity", "AssemblyLinearVelocity", "WalkSpeed", "Humanoid Move", "LinearVelocity", "ApplyImpulse", "CFrame".
+local speedMethod = "Velocity"
+local speedObjects = {linearVelocity=nil, attachment=nil, lastMethod=nil}
+local function ensureSpeedAttachment(hrp)
+    local att=speedObjects.attachment
+    if not att or att.Parent~=hrp then
+        if att then pcall(function() att:Destroy() end) end
+        att=Instance.new("Attachment");att.Name="HeartlessMoveeLinVelAtt";att.Parent=hrp
+        speedObjects.attachment=att
+    end
+    return att
+end
+local function destroySpeedObjects()
+    for key,obj in pairs(speedObjects) do
+        if key~="lastMethod" and obj and typeof(obj)=="Instance" then pcall(function() obj:Destroy() end);speedObjects[key]=nil end
+    end
+end
+local function applyHeartlessSpeedMethod(hrp,humanoid,direction,currentSpeed,dt)
+    if not hrp or not humanoid then return end
+    local method=speedMethod
+    if speedObjects.lastMethod~=method then
+        destroySpeedObjects()
+        if method~="WalkSpeed" and humanoid.WalkSpeed~=16 then humanoid.WalkSpeed=16 end
+        speedObjects.lastMethod=method
+    end
+    local flat=Vector3.new(direction.X,0,direction.Z)
+    flat=flat.Magnitude>0 and flat.Unit or Vector3.zero
+    local function massImpulse()
+        local mass=hrp.AssemblyMass or 1
+        local current=hrp.AssemblyLinearVelocity
+        local desired=Vector3.new(flat.X*currentSpeed,current.Y,flat.Z*currentSpeed)
+        local delta=desired-current
+        pcall(function() hrp:ApplyImpulse(Vector3.new(delta.X,0,delta.Z)*mass) end)
+    end
+    if method=="Velocity" or method=="AssemblyLinearVelocity" or method=="ApplyImpulse" then
+        -- Change only horizontal velocity; never force Y, so jumping and falling remain natural.
+        massImpulse()
+    elseif method=="WalkSpeed" then
+        humanoid.WalkSpeed=currentSpeed
+    elseif method=="Humanoid Move" then
+        humanoid.WalkSpeed=currentSpeed;humanoid:Move(flat,false)
+    elseif method=="LinearVelocity" then
+        if not speedObjects.linearVelocity or speedObjects.linearVelocity.Parent~=hrp then
+            if speedObjects.linearVelocity then pcall(function() speedObjects.linearVelocity:Destroy() end) end
+            local lv=Instance.new("LinearVelocity");lv.Name="HeartlessMoveeLinearVelocity";lv.Attachment0=ensureSpeedAttachment(hrp)
+            lv.MaxForce=1e8;lv.RelativeTo=Enum.ActuatorRelativeTo.World;lv.Parent=hrp;speedObjects.linearVelocity=lv
+        end
+        -- Preserve the current vertical actuator component instead of injecting an upward force.
+        local currentY=hrp.AssemblyLinearVelocity.Y
+        speedObjects.linearVelocity.VectorVelocity=Vector3.new(flat.X*currentSpeed,currentY,flat.Z*currentSpeed)
+    elseif method=="CFrame" then
+        hrp.CFrame=hrp.CFrame+(flat*currentSpeed*(dt or 1/60))
+    end
+end
+local function setHeartlessSpeedMethod(method)
+    local allowed={Velocity=true,AssemblyLinearVelocity=true,WalkSpeed=true,["Humanoid Move"]=true,LinearVelocity=true,ApplyImpulse=true,CFrame=true}
+    if allowed[method] then speedMethod=method;speedObjects.lastMethod=nil;destroySpeedObjects() end
+end
+
+-- End ROTX movement primitives.
+
+local antiRagdollEnabled,infJumpEnabled=false,false
+local antiRagdollMode = "Splatter"
+local antiRagdollNoSplatterCooldown = 0
+local medusaCounterEnabled,batCounterEnabled,unwalkEnabled=false,false,false
+local medusaDebounce,medusaLastUsed,dropActive=false,0,false
+local autoLeftEnabled,autoRightEnabled=false,false
+local autoLeftSetVisual,autoRightSetVisual=nil,nil
+local speedLabel=nil
+local speedModeLabel=nil
+local autoBatEnabled=false
+local autoSwingEnabled=true
+local autoMoveSwingEnabled=false
+local autoMoveSwingInterval=0.3
+local _alSwingDebounce=false
+local _arSwingDebounce=false
+local autoBatSetVisual=nil
+local tpBat1Enabled=false
+local tpBat2Enabled=false
+local tpBatMode="Original"
+local TP_BAT_STUDS=6 -- equilibrio recomendado entre precisiÃ³n y movimiento
+local TP_BAT_SWING_INTERVAL=0.12
+local activeProfile="Balanced"
+local savedProfiles={}
+local tpBat1SetVisual=nil
+local tpBat2SetVisual=nil
+local resetAutoBatMotion=nil
+local AUTO_BAT_SPEED,AUTO_BAT_VERT_SPEED,AUTO_BAT_DIST,AUTO_BAT_HEIGHT,AUTO_BAT_V_OFF,AUTO_BAT_TURN_SPEED,AUTO_BAT_MAX_TURN_RATE = 60,58,-2.6,4.6,1,320,32
+local AUTO_BAT_SWING_INTERVAL = 0.2 -- cooldown between swings to avoid overlapping the bat animation
+local _autoBatTarget = nil
+local _autoBatLastScan = 0
+local _autoBatLastSwing = 0
+local _autoBatEquippedThisRun = false
+local setBatCounterVisual=nil
+local startBatCounter,stopBatCounter
+local antiLagEnabled=false
+local saturatedColorsEnabled=false
+local antiLagConn=nil
+local stretchRezEnabled,stretchRezConn,setStretchRezVisual=false,nil,nil
+local unwalkSavedAnimate,_anyKeyListening=nil,false
+local cursedResetRemote=nil
+local CURSED_RESET_GUID="f888ee6e-c86d-46e1-93d7-0639d6635d42"
+local guiTransparencyEnabled,mobileButtonsEnabled,mobileButtonsLocked=false,true,false
+mobileButtonsVisible = mobileButtonsVisible ~= false
+local mobileButtonsSize=80
+local circleButtonsEnabled=false
+local stealBarFrame
+local mobBtnRefs={}
+local mobGuiRef=nil
+local mobileInputConns={}
+local fovValue=80
+local fovOptions={80,120,180}
+local fovIndex=1
+local laggerModePillRef=nil
+local autoSwitchSpeedEnabled=false
+local mobBtnTransparencyEnabled=false
+local perButtonDragEnabled=false
+local uiLocked=false
+local infJumpMode="manual"
+local holdInfJumpConn=nil
+local DROP_ASCEND_DURATION=0.2
+local DROP_ASCEND_SPEED=150
+local dropMode="Jump"
+local _GuiKeys = nil
+
+-- VISUAL SETTINGS
+local tabPosition = "Left"
+local interfaceVersion = "V1"
+local v1MenuWidth = 340
+local v1MenuHeight = 495
+local mobileButtonWidth = 49
+local mobileButtonHeight = 49
+local mobileButtonOutline = 2
+local menuWidth = 265
+local menuHeight = 350
+local buttonStyle = "Cubes"
+local mobileTextSize = 12.5
+local themeName = "Black"
+local themeIndex = 1
+-- Color UI: Black only.
+local THEME_ORDER = {"Black"}
+local THEME_IMAGES = {Pink="127919774357239", Green="98501044780305", Black="rbxthumb://type=Asset&id=2937776598&w=420&h=420", Purple="82815528233653", Blue="72123515136858"}
+local THEME_COLORS = {Blue=Color3.fromRGB(70,145,255), Green=Color3.fromRGB(65,210,115), Pink=Color3.fromRGB(255,105,190), Black=Color3.fromRGB(25,25,30), Purple=Color3.fromRGB(165,80,255)}
+-- Colores pastel editables del panel de nombre. Cambia estos valores RGB cuando quieras.
+local NAME_PANEL_PRIMARY = Color3.fromRGB(255,205,232)
+local NAME_PANEL_ACCENT = Color3.fromRGB(205,190,255)
+local NAME_PANEL_THEME_COLORS = {
+    Blue = {primary=Color3.fromRGB(190,220,255), accent=Color3.fromRGB(210,195,255)},
+    Green = {primary=Color3.fromRGB(190,255,220), accent=Color3.fromRGB(205,245,190)},
+    Pink = {primary=Color3.fromRGB(255,205,232), accent=Color3.fromRGB(235,200,255)},
+    Black = {primary=Color3.fromRGB(205,205,212), accent=Color3.fromRGB(125,125,140)},
+    Purple = {primary=Color3.fromRGB(220,195,255), accent=Color3.fromRGB(185,125,255)},
+}
+local function getPastelThemeColor(name)
+    local accent=THEME_COLORS[name] or THEME_COLORS.Blue
+    return accent:Lerp(Color3.fromRGB(255,255,255),0.42)
+end
+local lineESPEnabled=false
+local lineESPObjects={}
+local lineESPConn=nil
+local updateLineESP=nil
+
+-- HEARTLESS SKIN: black body, invisible head, purple fire, visible legs and white star rosette.
+local heartlessSkinEnabled = false -- Mantener el avatar original del jugador por defecto
+local skinMode = "Skin1"
+-- LegacySkin4: avatar violeta/azul con roseta energÃ©tica violeta y manos claras,
+-- inspirada en la referencia proporcionada.
+-- Globals intentionally used here: the executor's Lua register limit is 200.
+skin4BodyColor = Color3.fromRGB(48, 18, 105)
+skin4HandColor = Color3.fromRGB(248, 248, 255)
+skin4AccentColor = Color3.fromRGB(160, 65, 255)
+skin4GlowColor = Color3.fromRGB(185, 75, 255)
+skin1BodyColor = Color3.fromRGB(255, 221, 0)
+skin4ValkAssetId = 101759037049993
+skin4HornsAssetId = 72821116354344
+skin1HeadAssetId = 114232040619461
+skin1SuitAssetId = 104987421710322
+sk5LoadState = {Head=false, Suit=false}
+sk5Epoch = 0
+local rightLegHiddenEnabled = false
+-- Generation token used to invalidate delayed Skin 4 accessory loads when
+-- the user changes skin or disables the Heartless skin.
+local skin4AccessoryEpoch = 0
+local skin4AccessoryLoading = {Valk = false, Horns = false}
+local blackSmokeEnabled = false
+local smokeColor = "Black"
+local crownEnabled = true
+local crownStyle = "White"
+local hideHeadEnabled = false
+local HEARTLESS = {
+    original = {}, renderConn = nil, characterConn = nil, lastSkinChar = nil,
+    skinColor = Color3.fromRGB(8, 8, 10),
+    firePrimary = Color3.fromRGB(150, 45, 255), fireSecondary = Color3.fromRGB(230, 145, 255),
+    crownColor = Color3.fromRGB(248, 248, 255), crownScale = 0.72,
+    speedMode = "Normal", customSpeedNorm = 66, customSpeedSteal = 34,
+    speedConn = nil,
+    speedCards = {}, statusLabel = nil,
+}
+
+function heartlessRemember(obj, data)
+    if obj and HEARTLESS.original[obj] == nil then HEARTLESS.original[obj] = data end
+end
+
+function restoreHeartlessSkin()
+    for obj, data in pairs(HEARTLESS.original) do
+        if obj and obj.Parent and type(data) == "table" then
+            pcall(function()
+                if data.kind == "part" and obj:IsA("BasePart") then
+                    obj.Color = data.color
+                    obj.Material = data.material
+                    obj.Transparency = data.transparency
+                    obj.LocalTransparencyModifier = data.localTransparency
+                    obj.Reflectance = data.reflectance
+                    if data.size then obj.Size = data.size end
+                elseif data.kind == "bodycolors" and obj:IsA("BodyColors") then
+                    obj.HeadColor3 = data.head
+                    obj.LeftArmColor3 = data.leftArm
+                    obj.RightArmColor3 = data.rightArm
+                    obj.LeftLegColor3 = data.leftLeg
+                    obj.RightLegColor3 = data.rightLeg
+                    obj.TorsoColor3 = data.torso
+                elseif data.kind == "shirt" and obj:IsA("Shirt") then
+                    obj.ShirtTemplate = data.template
+                elseif data.kind == "pants" and obj:IsA("Pants") then
+                    obj.PantsTemplate = data.template
+                elseif data.kind == "graphic" and obj:IsA("ShirtGraphic") then
+                    obj.Graphic = data.graphic
+                elseif data.kind == "texture" and (obj:IsA("Decal") or obj:IsA("Texture")) then
+                    obj.Transparency = data.transparency
+                end
+            end)
+        end
+    end
+    local char = LP.Character
+    if char then
+        for _, name in ipairs({"HeartlessSkinRosette", "HeartlessBlackSmoke", "HeartlessLegacySkin4Valk", "HeartlessLegacySkin4Horns", "HeartlessSkin1Head", "HeartlessSkin1Suit"}) do
+            local effect = char:FindFirstChild(name, true)
+            if effect then pcall(function() effect:Destroy() end) end
+        end
+    end
+    HEARTLESS.original = {}
+end
+
+function applyHeartlessBody(char)
+    if not char or not char.Parent then return end
+    for _, obj in ipairs(char:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local lowerName = obj.Name:lower()
+            local compactName = lowerName:gsub("[%s_%-]", "")
+            local isRootPart = compactName == "humanoidrootpart" or compactName == "rootpart" or compactName == "root"
+            local isBodyPart = compactName == "head"
+                or compactName:find("torso", 1, true) ~= nil
+                or compactName:find("arm", 1, true) ~= nil
+                or compactName:find("leg", 1, true) ~= nil
+                or compactName:find("foot", 1, true) ~= nil
+                or compactName:find("hand", 1, true) ~= nil
+            local isRightLeg = compactName == "rightleg" or compactName == "rightupperleg" or compactName == "rightlowerleg" or compactName == "rightfoot"
+            local accessoryAncestor = obj:FindFirstAncestorOfClass("Accessory")
+            local inAccessory = accessoryAncestor ~= nil
+            local accessoryName = acc
